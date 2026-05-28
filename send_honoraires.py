@@ -13,7 +13,7 @@ TENANT_ID = os.environ['TENANT_ID']
 SENDER_EMAIL = "it@madavance.org"
 SHAREPOINT_HOST = "madavancengo.sharepoint.com"
 SITE_NAME = "ITMadAvance"
-ROOT_FOLDER = "Automatisation frais d'honoraires MadAvance"
+ROOT_FOLDER = "MadAvance/Automatisation frais d'honoraires MadAvance"
 
 MONTHS_FR = {
     1: "janvier", 2: "février", 3: "mars", 4: "avril",
