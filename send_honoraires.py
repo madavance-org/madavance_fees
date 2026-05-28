@@ -31,11 +31,30 @@ def get_token():
     result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
     if "access_token" not in result:
         raise Exception(f"Échec authentification : {result.get('error_description')}")
-    return result["access_token"]
+    token = result["access_token"]
+    print(f"[DEBUG] Token obtenu (débute par) : {token[:30]}...")
+    # Décoder le payload JWT pour afficher les scopes/rôles accordés
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # padding
+        import json
+        payload = json.loads(base64.b64decode(payload_b64))
+        print(f"[DEBUG] Rôles accordés (roles) : {payload.get('roles', [])}")
+        print(f"[DEBUG] App ID (appid) : {payload.get('appid', 'N/A')}")
+        print(f"[DEBUG] Tenant (tid) : {payload.get('tid', 'N/A')}")
+    except Exception as e:
+        print(f"[DEBUG] Impossible de décoder le token : {e}")
+    return token
 
 
 def graph_get(token, url):
     r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+    if not r.ok:
+        print(f"[DEBUG] Erreur {r.status_code} sur {url}")
+        try:
+            print(f"[DEBUG] Détail : {r.json()}")
+        except Exception:
+            print(f"[DEBUG] Réponse brute : {r.text[:500]}")
     r.raise_for_status()
     return r.json()
 
