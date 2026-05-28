@@ -96,13 +96,21 @@ def list_root(token, drive_id):
 
 
 def read_excel(content):
-    wb = openpyxl.load_workbook(io.BytesIO(content))
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     ws = wb.active
     headers = [cell.value for cell in ws[1]]
     staff = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         if row[0]:
-            staff.append(dict(zip(headers, row)))
+            entry = dict(zip(headers, row))
+            # Si la valeur de "Notes honoraire" est None ou une formule, la reconstruire
+            note = entry.get("Notes honoraire")
+            if not note or (isinstance(note, str) and note.startswith("=")):
+                nom = entry.get("Nom", "")
+                mois = entry.get("Mois", "")
+                annee = entry.get("Année", "")
+                entry["Notes honoraire"] = f"{nom}_{mois}_{annee}"
+            staff.append(entry)
     return staff
 
 
