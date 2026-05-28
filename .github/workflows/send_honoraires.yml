@@ -1,0 +1,27 @@
+name: Envoi notes d'honoraires
+
+on:
+  schedule:
+    - cron: '0 8 1 * *'  # Le 1er de chaque mois à 8h UTC
+  workflow_dispatch:      # Déclenchement manuel possible
+
+jobs:
+  send-honoraires:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer les dépendances
+        run: pip install msal requests openpyxl
+
+      - name: Envoyer les emails
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          TENANT_ID: ${{ secrets.TENANT_ID }}
+        run: python send_honoraires.py
