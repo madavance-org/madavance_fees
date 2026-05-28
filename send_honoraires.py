@@ -44,7 +44,13 @@ def get_drive_id(token):
     site = graph_get(token, f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOST}:/sites/{SITE_NAME}")
     site_id = site["id"]
     drives = graph_get(token, f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives")
-    # Prendre la première bibliothèque de documents
+    print("Drives disponibles :")
+    for d in drives["value"]:
+        print(f"  - {d['name']} ({d['id']})")
+    # Chercher "Documents" ou prendre le premier
+    for d in drives["value"]:
+        if d["name"].lower() in ("documents", "documents partagés", "shared documents"):
+            return d["id"]
     return drives["value"][0]["id"]
 
 
