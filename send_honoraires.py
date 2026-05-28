@@ -54,15 +54,25 @@ def get_drive_id(token):
     return drives["value"][0]["id"]
 
 
+def encode_path(path):
+    from urllib.parse import quote
+    return quote(path, safe='/')
+
+
 def download_file(token, drive_id, path):
-    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}:/content"
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encode_path(path)}:/content"
     r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
     r.raise_for_status()
     return r.content
 
 
 def list_folder(token, drive_id, path):
-    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}:/children"
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encode_path(path)}:/children"
+    return graph_get(token, url)["value"]
+
+
+def list_root(token, drive_id):
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
     return graph_get(token, url)["value"]
 
 
@@ -116,6 +126,10 @@ def main():
 
     token = get_token()
     drive_id = get_drive_id(token)
+
+    print("Contenu racine du drive :")
+    for item in list_root(token, drive_id):
+        print(f"  - {item['name']}")
 
     items = list_folder(token, drive_id, folder_path)
     excel_file = next((i for i in items if i["name"].endswith(".xlsx")), None)
