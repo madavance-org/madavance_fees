@@ -10,7 +10,7 @@ from datetime import datetime
 CLIENT_ID = os.environ['CLIENT_ID']
 CLIENT_SECRET = os.environ['CLIENT_SECRET']
 TENANT_ID = os.environ['TENANT_ID']
-SENDER_EMAIL = "it@madavance.org"
+SENDER_EMAIL = "domoina@madavance.org"
 SHAREPOINT_HOST = "madavancengo.sharepoint.com"
 SITE_NAME = "ITMadAvance"
 ROOT_FOLDER = "MadAvance/Automatisation frais d'honoraires MadAvance"
