@@ -16,11 +16,10 @@ SITE_NAME = "ITMadAvance"
 ROOT_FOLDER = "MadAvance/Automatisation frais d'honoraires MadAvance"
 
 MONTHS_FR = {
-    1: "janvier", 2: "février", 3: "mars", 4: "avril",
-    5: "mai", 6: "juin", 7: "juillet", 8: "août",
-    9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+1: "janvier", 2: "février", 3: "mars", 4: "avril",
+5: "mai", 6: "juin", 7: "juillet", 8: "août",
+9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
 }
-
 
 def get_token():
     app = msal.ConfidentialClientApplication(
@@ -36,7 +35,7 @@ def get_token():
     # Décoder le payload JWT pour afficher les scopes/rôles accordés
     try:
         payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)  # padding
+        payload_b64 += "=" * (-len(payload_b64) % 4) # padding
         import json
         payload = json.loads(base64.b64decode(payload_b64))
         print(f"[DEBUG] Rôles accordés (roles) : {payload.get('roles', [])}")
@@ -46,7 +45,6 @@ def get_token():
         print(f"[DEBUG] Impossible de décoder le token : {e}")
     return token
 
-
 def graph_get(token, url):
     r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
     if not r.ok:
@@ -55,9 +53,8 @@ def graph_get(token, url):
             print(f"[DEBUG] Détail : {r.json()}")
         except Exception:
             print(f"[DEBUG] Réponse brute : {r.text[:500]}")
-    r.raise_for_status()
+        r.raise_for_status()
     return r.json()
-
 
 def get_drive_id(token):
     site = graph_get(token, f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOST}:/sites/{SITE_NAME}")
@@ -66,17 +63,14 @@ def get_drive_id(token):
     print("Drives disponibles :")
     for d in drives["value"]:
         print(f"  - {d['name']} ({d['id']})")
-    # Chercher "Documents" ou prendre le premier
     for d in drives["value"]:
         if d["name"].lower() in ("documents", "documents partagés", "shared documents"):
             return d["id"]
     return drives["value"][0]["id"]
 
-
 def encode_path(path):
     from urllib.parse import quote
     return quote(path, safe='/')
-
 
 def download_file(token, drive_id, path):
     url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encode_path(path)}:/content"
@@ -84,16 +78,9 @@ def download_file(token, drive_id, path):
     r.raise_for_status()
     return r.content
 
-
 def list_folder(token, drive_id, path):
     url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encode_path(path)}:/children"
     return graph_get(token, url)["value"]
-
-
-def list_root(token, drive_id):
-    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
-    return graph_get(token, url)["value"]
-
 
 def read_excel(content):
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
@@ -103,16 +90,14 @@ def read_excel(content):
     for row in ws.iter_rows(min_row=2, values_only=True):
         if row[0]:
             entry = dict(zip(headers, row))
-            # Si la valeur de "Notes honoraire" est None ou une formule, la reconstruire
             note = entry.get("Notes honoraire")
             if not note or (isinstance(note, str) and note.startswith("=")):
                 nom = entry.get("Nom", "")
                 mois = entry.get("Mois", "")
                 annee = entry.get("Année", "")
-                entry["Notes honoraire"] = f"{nom}_{mois}_{annee}"
+                entry["Notes honoraire"] = f"{nom}_{mois}{annee}"
             staff.append(entry)
     return staff
-
 
 def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
     body = {
@@ -142,7 +127,6 @@ def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
     )
     r.raise_for_status()
 
-
 def main():
     now = datetime.now()
     month = MONTHS_FR[now.month]
@@ -154,18 +138,19 @@ def main():
     token = get_token()
     drive_id = get_drive_id(token)
 
-    print("Contenu racine du drive :")
-    for item in list_root(token, drive_id):
-        print(f"  - {item['name']}")
-
     items = list_folder(token, drive_id, folder_path)
+
+    # Index des PDFs présents dans le dossier
+    pdf_disponibles = {i["name"] for i in items if i["name"].lower().endswith(".pdf")}
+    print(f"{len(pdf_disponibles)} PDF(s) trouvé(s) dans le dossier")
+
     excel_file = next((i for i in items if i["name"].endswith(".xlsx")), None)
     if not excel_file:
         raise Exception("Fichier Excel introuvable dans le dossier")
 
     excel_content = download_file(token, drive_id, f"{folder_path}/{excel_file['name']}")
     staff_list = read_excel(excel_content)
-    print(f"{len(staff_list)} staff trouvés")
+    print(f"{len(staff_list)} staff trouvés dans l'Excel")
 
     for staff in staff_list:
         nom = staff.get("Nom")
@@ -173,7 +158,10 @@ def main():
         pdf_filename = str(staff.get("Notes honoraire")) + ".pdf"
 
         if not nom or not email:
-            print(f"Entrée incomplète ignorée : {staff}")
+            continue
+
+        # Envoyer uniquement si le PDF est présent dans le dossier
+        if pdf_filename not in pdf_disponibles:
             continue
 
         try:
@@ -182,7 +170,6 @@ def main():
             print(f"✓ Email envoyé à {nom} ({email})")
         except Exception as e:
             print(f"✗ Erreur pour {nom} : {e}")
-
 
 if __name__ == "__main__":
     main()
