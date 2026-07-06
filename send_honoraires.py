@@ -1,10 +1,14 @@
 import os
+import re
 import base64
 import io
+import json
+import unicodedata
 import requests
 import msal
 import openpyxl
 from datetime import datetime
+from urllib.parse import quote
 
 # Configuration
 CLIENT_ID = os.environ['CLIENT_ID']
@@ -16,9 +20,9 @@ SITE_NAME = "ITMadAvance"
 ROOT_FOLDER = "MadAvance/Automatisation frais d'honoraires MadAvance"
 
 MONTHS_FR = {
-1: "janvier", 2: "février", 3: "mars", 4: "avril",
-5: "mai", 6: "juin", 7: "juillet", 8: "août",
-9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+    1: "janvier", 2: "février", 3: "mars", 4: "avril",
+    5: "mai", 6: "juin", 7: "juillet", 8: "août",
+    9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
 }
 
 def get_token():
@@ -32,11 +36,9 @@ def get_token():
         raise Exception(f"Échec authentification : {result.get('error_description')}")
     token = result["access_token"]
     print(f"[DEBUG] Token obtenu (débute par) : {token[:30]}...")
-    # Décoder le payload JWT pour afficher les scopes/rôles accordés
     try:
         payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4) # padding
-        import json
+        payload_b64 += "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.b64decode(payload_b64))
         print(f"[DEBUG] Rôles accordés (roles) : {payload.get('roles', [])}")
         print(f"[DEBUG] App ID (appid) : {payload.get('appid', 'N/A')}")
@@ -56,6 +58,20 @@ def graph_get(token, url):
         r.raise_for_status()
     return r.json()
 
+def graph_patch(token, url, body):
+    r = requests.patch(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=body
+    )
+    if not r.ok:
+        print(f"[DEBUG] Erreur PATCH {r.status_code} sur {url}")
+        try:
+            print(f"[DEBUG] Détail : {r.json()}")
+        except Exception:
+            print(f"[DEBUG] Réponse brute : {r.text[:500]}")
+        r.raise_for_status()
+
 def get_drive_id(token):
     site = graph_get(token, f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOST}:/sites/{SITE_NAME}")
     site_id = site["id"]
@@ -69,7 +85,6 @@ def get_drive_id(token):
     return drives["value"][0]["id"]
 
 def encode_path(path):
-    from urllib.parse import quote
     return quote(path, safe='/')
 
 def download_file(token, drive_id, path):
@@ -81,6 +96,22 @@ def download_file(token, drive_id, path):
 def list_folder(token, drive_id, path):
     url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encode_path(path)}:/children"
     return graph_get(token, url)["value"]
+
+def normalize_for_match(name):
+    """Normalise un nom de fichier PDF pour la comparaison souple."""
+    # Supprimer l'extension .pdf si présente
+    if name.lower().endswith(".pdf"):
+        name = name[:-4]
+    # Normalisation Unicode NFC (é composé vs e + accent)
+    name = unicodedata.normalize("NFC", name)
+    # Remplacer tirets spéciaux (‐ ‑ – — etc.) par tiret standard
+    name = re.sub(r"[‐‑‒–—―﹘﹣－]", "-", name)
+    # Supprimer suffixes numériques après l'année : _12, _24, _
+    name = re.sub(r"_\d+$", "", name)
+    name = re.sub(r"_+$", "", name)
+    # Supprimer l'espace parasite après _ : "_ Juin" → "_Juin"
+    name = re.sub(r"_\s+", "_", name)
+    return name.strip()
 
 def read_excel(content):
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
@@ -98,6 +129,27 @@ def read_excel(content):
                 entry["Notes honoraire"] = f"{nom}_{mois}{annee}"
             staff.append(entry)
     return staff
+
+def get_worksheet_name(token, drive_id, item_id):
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/workbook/worksheets"
+    result = graph_get(token, url)
+    return result["value"][0]["name"]
+
+def setup_status_headers(token, drive_id, item_id, sheet_name):
+    """Crée les en-têtes PDF trouvé / Email envoyé en colonnes F et G."""
+    url = (
+        f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}"
+        f"/workbook/worksheets('{quote(sheet_name)}')/range(address='F1:G1')"
+    )
+    graph_patch(token, url, {"values": [["PDF trouvé", "Email envoyé"]]})
+
+def update_row_status(token, drive_id, item_id, sheet_name, row, pdf_filename, email_address):
+    """Met à jour le statut d'une ligne dans l'Excel avec le nom du fichier et l'email destinataire."""
+    url = (
+        f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}"
+        f"/workbook/worksheets('{quote(sheet_name)}')/range(address='F{row}:G{row}')"
+    )
+    graph_patch(token, url, {"values": [[pdf_filename, email_address]]})
 
 def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
     body = {
@@ -137,39 +189,58 @@ def main():
 
     token = get_token()
     drive_id = get_drive_id(token)
-
     items = list_folder(token, drive_id, folder_path)
 
-    # Index des PDFs présents dans le dossier
-    pdf_disponibles = {i["name"] for i in items if i["name"].lower().endswith(".pdf")}
-    print(f"{len(pdf_disponibles)} PDF(s) trouvé(s) dans le dossier")
+    # Construire la map normalisée : nom_normalisé → nom_réel du fichier
+    pdf_map = {}
+    for item in items:
+        if item["name"].lower().endswith(".pdf"):
+            norm = normalize_for_match(item["name"])
+            pdf_map[norm] = item["name"]
+    print(f"{len(pdf_map)} PDF(s) trouvé(s) dans le dossier")
 
-    excel_file = next((i for i in items if i["name"].endswith(".xlsx")), None)
-    if not excel_file:
+    # Trouver le fichier Excel
+    excel_item = next((i for i in items if i["name"].endswith(".xlsx")), None)
+    if not excel_item:
         raise Exception("Fichier Excel introuvable dans le dossier")
 
-    excel_content = download_file(token, drive_id, f"{folder_path}/{excel_file['name']}")
+    excel_item_id = excel_item["id"]
+    excel_content = download_file(token, drive_id, f"{folder_path}/{excel_item['name']}")
     staff_list = read_excel(excel_content)
     print(f"{len(staff_list)} staff trouvés dans l'Excel")
 
-    for staff in staff_list:
+    # Préparer les colonnes de statut
+    sheet_name = get_worksheet_name(token, drive_id, excel_item_id)
+    setup_status_headers(token, drive_id, excel_item_id, sheet_name)
+
+    for i, staff in enumerate(staff_list):
+        row = i + 2  # ligne 1 = en-têtes, données à partir de la ligne 2
         nom = staff.get("Nom")
         email = staff.get("Email")
-        pdf_filename = str(staff.get("Notes honoraire")) + ".pdf"
+        pdf_base = str(staff.get("Notes honoraire"))
 
         if not nom or not email:
             continue
 
-        # Envoyer uniquement si le PDF est présent dans le dossier
-        if pdf_filename not in pdf_disponibles:
-            continue
+        # Recherche normalisée du PDF
+        pdf_norm = normalize_for_match(pdf_base)
+        actual_filename = ""
+        email_sent_to = ""
 
-        try:
-            pdf_content = download_file(token, drive_id, f"{folder_path}/{pdf_filename}")
-            send_email(token, nom, email, pdf_content, pdf_filename, month, year)
-            print(f"✓ Email envoyé à {nom} ({email})")
-        except Exception as e:
-            print(f"✗ Erreur pour {nom} : {e}")
+        if pdf_norm not in pdf_map:
+            print(f"⚠ PDF introuvable pour {nom} (attendu : {pdf_base})")
+        else:
+            actual_filename = pdf_map[pdf_norm]
+            try:
+                pdf_content = download_file(token, drive_id, f"{folder_path}/{actual_filename}")
+                send_email(token, nom, email, pdf_content, actual_filename, month, year)
+                print(f"✓ Email envoyé à {nom} ({email})")
+                email_sent_to = email
+            except Exception as e:
+                print(f"✗ Erreur pour {nom} : {e}")
+
+        # Écrire le statut dans l'Excel
+        update_row_status(token, drive_id, excel_item_id, sheet_name, row, actual_filename, email_sent_to)
 
 if __name__ == "__main__":
     main()
