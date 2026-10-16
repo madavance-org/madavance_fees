@@ -180,9 +180,9 @@ def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
     r.raise_for_status()
 
 def main():
-    now = datetime.now()
-    month = MONTHS_FR[now.month]
-    year = now.year
+    # TEMPORAIRE : forcé sur septembre 2026
+    month = MONTHS_FR[9]
+    year = 2026
     folder_path = f"{ROOT_FOLDER}/{month} {year}"
 
     print(f"Traitement du dossier : {folder_path}")
@@ -200,9 +200,16 @@ def main():
     print(f"{len(pdf_map)} PDF(s) trouvé(s) dans le dossier")
 
     # Trouver le fichier Excel
-    excel_item = next((i for i in items if i["name"].endswith(".xlsx")), None)
+    # Le fichier staff doit contenir "staff" et le nom du mois (ex : staff_septembre _2026.xlsx)
+    excel_item = next(
+        (i for i in items
+         if i["name"].lower().endswith(".xlsx")
+         and "staff" in i["name"].lower()
+         and month in unicodedata.normalize("NFC", i["name"]).lower()),
+        None
+    )
     if not excel_item:
-        raise Exception("Fichier Excel introuvable dans le dossier")
+        raise Exception(f"Fichier staff du mois de {month} introuvable dans le dossier")
 
     excel_item_id = excel_item["id"]
     excel_content = download_file(token, drive_id, f"{folder_path}/{excel_item['name']}")
