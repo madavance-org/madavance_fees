@@ -180,9 +180,11 @@ def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
     r.raise_for_status()
 
 def main():
-    # TEMPORAIRE : forcé sur septembre 2026
-    month = MONTHS_FR[9]
-    year = 2026
+    # Mois précédent : le 1er du mois, on envoie les notes du mois écoulé
+    now = datetime.now()
+    prev_month = now.month - 1 or 12
+    year = now.year if now.month > 1 else now.year - 1
+    month = MONTHS_FR[prev_month]
     folder_path = f"{ROOT_FOLDER}/{month} {year}"
 
     print(f"Traitement du dossier : {folder_path}")
