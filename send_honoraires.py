@@ -182,8 +182,13 @@ def send_email(token, nom, email, pdf_content, pdf_filename, month, year):
 
 def main():
     now = datetime.now()
-    month = MONTHS_FR[now.month]
-    year = now.year
+    # MOIS (1-12) et ANNEE optionnels : permettent d'envoyer un mois passé.
+    # Sans valeur, on garde le comportement habituel (mois courant).
+    mois_num = int(os.environ.get("MOIS") or now.month)
+    if mois_num not in MONTHS_FR:
+        raise ValueError(f"MOIS invalide : {mois_num} (attendu 1 à 12)")
+    month = MONTHS_FR[mois_num]
+    year = int(os.environ.get("ANNEE") or now.year)
     folder_path = f"{ROOT_FOLDER}/{month} {year}"
 
     print(f"Traitement du dossier : {folder_path}")
