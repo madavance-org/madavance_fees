@@ -106,12 +106,11 @@ def normalize_for_match(name):
     name = unicodedata.normalize("NFC", name)
     # Remplacer tirets spéciaux (‐ ‑ – — etc.) par tiret standard
     name = re.sub(r"[‐‑‒–—―﹘﹣－]", "-", name)
-    # Supprimer suffixes numériques après l'année : _12, _24, _
-    name = re.sub(r"_\d+$", "", name)
-    name = re.sub(r"_+$", "", name)
-    # Supprimer l'espace parasite après _ : "_ Juin" → "_Juin"
-    name = re.sub(r"_\s+", "_", name)
-    return name.strip()
+    # Supprimer le suffixe numérique parasite après l'année : "..._2026_8" → "..._2026"
+    name = re.sub(r"(\d{4})_\d+$", r"\1", name)
+    # Comparaison indifférente aux espaces, underscores et à la casse :
+    # "Nom _Août 2026", "Nom_Août_2026" et "Nom_août2026" sont équivalents
+    return re.sub(r"[\s_]+", "", name).lower()
 
 def read_excel(content):
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
@@ -126,7 +125,9 @@ def read_excel(content):
                 nom = entry.get("Nom", "")
                 mois = entry.get("Mois", "")
                 annee = entry.get("Année", "")
-                entry["Notes honoraire"] = f"{nom}_{mois}{annee}"
+                # Valeur de formule non calculée : on reconstruit le nom
+                # (la comparaison ignore séparateurs et casse, voir normalize_for_match)
+                entry["Notes honoraire"] = f"{nom}_{mois}_{annee}"
             staff.append(entry)
     return staff
 
