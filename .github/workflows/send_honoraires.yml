@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '0 8 1 * *'  # Le 1er de chaque mois à 8h UTC
   workflow_dispatch:      # Déclenchement manuel possible
+    inputs:
+      mois:
+        description: "Mois à envoyer, de 1 à 12 (vide = mois courant)"
+        required: false
+        default: ""
+      annee:
+        description: "Année, ex. 2026 (vide = année courante)"
+        required: false
+        default: ""
 
 jobs:
   send-honoraires:
@@ -24,4 +33,6 @@ jobs:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           TENANT_ID: ${{ secrets.TENANT_ID }}
+          MOIS: ${{ inputs.mois }}
+          ANNEE: ${{ inputs.annee }}
         run: python send_honoraires.py
